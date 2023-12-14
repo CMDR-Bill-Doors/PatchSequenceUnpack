@@ -18,6 +18,8 @@ namespace PatchSequenceUnpack
 
         static int i;
 
+        static int j;
+
         static void Main(string[] args)
         {
             Console.WriteLine("Input the patch folder's path");
@@ -33,7 +35,7 @@ namespace PatchSequenceUnpack
                 Read(file);
             }
             Console.WriteLine($"Converted patches stored at {outputDir}");
-            Console.WriteLine($"De-Sequencing of {i} files Complete, Press any key to exit.");
+            Console.WriteLine($"De-Sequencing of {i} files and {j} patches Complete, Press any key to exit.");
             Console.ReadKey();
         }
 
@@ -169,6 +171,7 @@ namespace PatchSequenceUnpack
                 newNode.InnerXml = childNode.InnerXml;
 
                 newNode.WriteTo(result);
+                j++;
             }
         }
     }
