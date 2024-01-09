@@ -6,6 +6,9 @@ using System.Reflection;
 using static System.Net.Mime.MediaTypeNames;
 using System.Text;
 using System.Linq;
+using System.Diagnostics.SymbolStore;
+using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace PatchSequenceUnpack
 {
@@ -15,6 +18,12 @@ namespace PatchSequenceUnpack
 
         static TextWriter exportLog;
 
+        static XmlReaderSettings readerSettings;
+
+        static StringBuilder strings = new StringBuilder();
+
+        static XmlWriterSettings writterSetting = new XmlWriterSettings();
+
         static string dir = System.IO.Directory.GetCurrentDirectory();
 
         static string outputDir;
@@ -23,10 +32,15 @@ namespace PatchSequenceUnpack
 
         static int j;
 
+        static int k;
+
         static bool makeLoadFolders;
 
         static List<string> firstFolders = new List<string>();
 
+        static List<XmlNode> patcheAddToConvert = new List<XmlNode>();
+
+        static List<XmlNode> patcheSequenceToConvert = new List<XmlNode>();
         static void Main(string[] args)
         {
             Console.WriteLine("Input the patch folder's path");
@@ -46,6 +60,16 @@ namespace PatchSequenceUnpack
             Console.WriteLine("Output " + outputDir);
             Directory.CreateDirectory(outputDir);
 
+            readerSettings = new XmlReaderSettings
+            {
+                IgnoreComments = true,
+                IgnoreWhitespace = true,
+                CheckCharacters = false
+            };
+
+            writterSetting.Indent = true;
+            writterSetting.IndentChars = "\t";
+
             exportLog = File.AppendText(Path.Combine(outputDir, "log.txt"));
 
             foreach (FileInfo file in directoryInfo.GetFiles("*.xml", SearchOption.AllDirectories))
@@ -58,9 +82,8 @@ namespace PatchSequenceUnpack
                 GenLoadFolders();
             }
 
-
             Log($"Converted patches stored at {outputDir}");
-            Log($"De-Sequencing of {i} files and {j} patches Complete, Press any key to exit.");
+            Log($"De-Sequencing of {i} files and {j} patches complete, among which {k} patchOperationAdds are converted to def. Press any key to exit.");
             exportLog.Close();
             Console.ReadKey();
         }
@@ -77,54 +100,83 @@ namespace PatchSequenceUnpack
             try
             {
                 XmlDocument xmlDoc;
-                XmlReaderSettings settings = new XmlReaderSettings
-                {
-                    IgnoreComments = true,
-                    IgnoreWhitespace = true,
-                    CheckCharacters = false
-                };
-
                 StringReader input = new StringReader(File.ReadAllText(file.FullName));
-                XmlReader xmlReader = XmlReader.Create(input, settings);
+                XmlReader xmlReader = XmlReader.Create(input, readerSettings);
                 xmlDoc = new XmlDocument();
                 xmlDoc.Load(xmlReader);
+
+                patcheAddToConvert.Clear();
+                patcheSequenceToConvert.Clear();
+                strings.Clear();
 
                 if (!IsPatch(xmlDoc))
                 {
                     Log(file.FullName + " is not a patch");
                     return;
                 }
-                XmlWriterSettings writterSetting = new XmlWriterSettings();
-                writterSetting.Indent = true;
-                writterSetting.IndentChars = "\t";
 
-                StringBuilder s = new StringBuilder();
-                s.Append(file.FullName);
-                s.Replace(dir, "");
-                s.Remove(0, 1);
-                string filepath = s.ToString();
+                strings.Append(file.FullName);
+                strings.Replace(dir, "");
+                strings.Remove(0, 1);
+                string filepath = strings.ToString();
                 string firstFolder = filepath.Split(@"\".ToCharArray())[0];
-
                 if (!firstFolders.Contains(firstFolder))
                 {
                     firstFolders.Add(firstFolder);
                 }
+                strings.Replace(file.Name, "");
+                string directirory = strings.ToString();
 
-                s.Replace(file.Name, "");
-                string directirory = s.ToString();
-                Directory.CreateDirectory(Path.Combine(outputDir, firstFolder, "Patches", directirory));
-                result = XmlWriter.Create(Path.Combine(outputDir, firstFolder, "Patches", filepath), writterSetting);
-                Log("Writing to " + Path.Combine(outputDir, firstFolder, "Patches", filepath));
-                result.WriteStartElement("Patch");
                 UnPackPatch(xmlDoc);
-                i++;
 
-                result.WriteEndElement();
-                result.Close();
+                GenPatch(firstFolder, directirory, filepath);
+                GenDef(firstFolder, directirory, filepath);
+                i++;
             }
             catch (Exception ex)
             {
                 Log("Exception reading " + file.Name + ": " + ex);
+            }
+        }
+
+        static void GenPatch(string firstFolder, string directirory, string filePath)
+        {
+            if (patcheSequenceToConvert.Any())
+            {
+                Directory.CreateDirectory(Path.Combine(outputDir, firstFolder, "Patches", directirory));
+                result = XmlWriter.Create(Path.Combine(outputDir, firstFolder, "Patches", filePath), writterSetting);
+                Log("Writing to " + Path.Combine(outputDir, firstFolder, "Patches", filePath));
+                result.WriteStartElement("Patch");
+
+                foreach (var patch in patcheSequenceToConvert)
+                {
+                    CopyNode(patch, "Operation").WriteTo(result);
+                }
+
+                result.WriteEndElement();
+                result.Close();
+            }
+        }
+
+
+        static void GenDef(string firstFolder, string directirory, string filePath)
+        {
+            if (patcheAddToConvert.Any())
+            {
+                Directory.CreateDirectory(Path.Combine(outputDir, firstFolder, "Defs", directirory));
+                XmlWriter def = XmlWriter.Create(Path.Combine(outputDir, firstFolder, "Defs", filePath), writterSetting);
+                Log("Generating def at " + Path.Combine(outputDir, firstFolder, "Defs", filePath));
+                def.WriteStartElement("Defs");
+                foreach (var value in patcheAddToConvert)
+                {
+                    foreach (XmlNode patch in value.ChildNodes)
+                    {
+                        CopyNode(patch, patch.Name).WriteTo(def);
+                        k++;
+                    }
+                }
+                def.WriteEndElement();
+                def.Close();
             }
         }
 
@@ -169,9 +221,14 @@ namespace PatchSequenceUnpack
                     UnPackFindMod(childNode);
                     continue;
                 }
+                else if (attr.InnerText == "PatchOperationAdd")
+                {
+                    TransformAddIfPossible(childNode);
+                    continue;
+                }
                 else
                 {
-                    childNode.WriteTo(result);
+                    patcheSequenceToConvert.Add(childNode);
                 }
             }
         }
@@ -208,28 +265,61 @@ namespace PatchSequenceUnpack
         {
             foreach (XmlNode childNode in sequence.ChildNodes)
             {
-                XmlNode newNode = childNode.OwnerDocument.CreateElement("Operation");
-
-                XmlAttribute[] attributes = new XmlAttribute[childNode.Attributes.Count];
-                childNode.Attributes.CopyTo(attributes, 0);
-
-                foreach (XmlAttribute attribute in attributes)
-                {
-                    newNode.Attributes.Append(attribute);
-                }
-
-                newNode.InnerXml = childNode.InnerXml;
-
-                newNode.WriteTo(result);
+                patcheSequenceToConvert.Add(childNode);
                 j++;
             }
         }
 
+        static XmlNode CopyNode(XmlNode from, string Name)
+        {
+            XmlNode to = from.OwnerDocument.CreateElement(Name);
+
+            XmlAttribute[] attributes = new XmlAttribute[from.Attributes.Count];
+            from.Attributes.CopyTo(attributes, 0);
+
+            foreach (XmlAttribute attribute in attributes)
+            {
+                to.Attributes.Append(attribute);
+            }
+
+            to.InnerXml = from.InnerXml;
+
+            return to;
+        }
+
+        static void TransformAddIfPossible(XmlNode sequence)
+        {
+            //Skip those with mayrequires
+            if (sequence.Attributes.Count == 1)
+            {
+                XmlNode value = null;
+                bool isDef = false; ;
+                foreach (XmlNode childNode in sequence.ChildNodes)
+                {
+                    if (childNode.NodeType == XmlNodeType.Element)
+                    {
+                        if (childNode.Name == "value")
+                        {
+                            value = childNode;
+                        }
+                        if (childNode.Name == "xpath" && childNode.InnerText == "Defs")
+                        {
+                            isDef = true;
+                        }
+                    }
+                }
+                if (isDef && value != null)
+                {
+                    Log("Transforming PatchOperationAdd into Def.");
+                    patcheAddToConvert.Add(value);
+                    return;
+                }
+            }
+            patcheSequenceToConvert.Add(sequence);
+        }
+
         static void GenLoadFolders()
         {
-            XmlWriterSettings writterSetting = new XmlWriterSettings();
-            writterSetting.Indent = true;
-            writterSetting.IndentChars = "\t";
             Directory.CreateDirectory(outputDir);
             result = XmlWriter.Create(Path.Combine(outputDir, "LoadFolders.xml"), writterSetting);
             result.WriteStartElement("loadFolders");
