@@ -28,6 +28,8 @@ namespace PatchSequenceUnpack
 
         static string outputDir;
 
+        static string steamModDir;
+
         static int i;
 
         static int j;
@@ -41,6 +43,9 @@ namespace PatchSequenceUnpack
         static List<XmlNode> patcheAddToConvert = new List<XmlNode>();
 
         static List<XmlNode> patcheSequenceToConvert = new List<XmlNode>();
+
+        static Dictionary<string, string> namePackageIDpair = new Dictionary<string, string>();
+
         static void Main(string[] args)
         {
             Console.WriteLine("Input the patch folder's path");
@@ -49,16 +54,27 @@ namespace PatchSequenceUnpack
             Console.WriteLine("Input the output folder's path");
             outputDir = Path.Combine(Console.ReadLine(), "Output");
 
-            Console.WriteLine("Create pesudo loadfolder file? Y/N");
+            Directory.CreateDirectory(outputDir);
+            exportLog = File.AppendText(Path.Combine(outputDir, "log.txt"));
+            Log("Output " + outputDir);
+            Log("Create pseudo loadfolder file? Y/N");
             makeLoadFolders = Console.ReadLine().ToLower()[0] == 'y';
             if (makeLoadFolders)
             {
-                Console.WriteLine("A pesudo loadfolder file will be created");
+                Log("A pesudo loadfolder file will be created");
+                Log("Input the steam mods folder's path");
+                steamModDir = Console.ReadLine();
+                if (steamModDir != "")
+                {
+                    Log($"===================Reading steam mod folder at {steamModDir}================");
+                    Log($"This may take a while");
+                    DirectoryInfo steamDirInfo = new DirectoryInfo(steamModDir);
+                    foreach (FileInfo file in steamDirInfo.GetFiles("About.xml", SearchOption.AllDirectories))
+                    {
+                        LookForPackageID(file);
+                    }
+                }
             }
-
-            DirectoryInfo directoryInfo = new DirectoryInfo(dir);
-            Console.WriteLine("Output " + outputDir);
-            Directory.CreateDirectory(outputDir);
 
             readerSettings = new XmlReaderSettings
             {
@@ -70,9 +86,11 @@ namespace PatchSequenceUnpack
             writterSetting.Indent = true;
             writterSetting.IndentChars = "\t";
 
-            exportLog = File.AppendText(Path.Combine(outputDir, "log.txt"));
+            DirectoryInfo dirInfo = new DirectoryInfo(dir);
 
-            foreach (FileInfo file in directoryInfo.GetFiles("*.xml", SearchOption.AllDirectories))
+
+            Log($"===================Reading patches================");
+            foreach (FileInfo file in dirInfo.GetFiles("*.xml", SearchOption.AllDirectories))
             {
                 Read(file);
             }
@@ -81,7 +99,7 @@ namespace PatchSequenceUnpack
             {
                 GenLoadFolders();
             }
-
+            Log($"===================Finished================");
             Log($"Converted patches stored at {outputDir}");
             Log($"De-Sequencing of {i} files and {j} patches complete, among which {k} patchOperationAdds are converted to def. Press any key to exit.");
             exportLog.Close();
@@ -92,6 +110,51 @@ namespace PatchSequenceUnpack
         {
             Console.WriteLine(logMessage);
             exportLog.WriteLine(logMessage);
+        }
+
+        static void LookForPackageID(FileInfo file)
+        {
+            try
+            {
+                XmlDocument xmlDoc;
+                StringReader input = new StringReader(File.ReadAllText(file.FullName));
+                XmlReader xmlReader = XmlReader.Create(input, readerSettings);
+                xmlDoc = new XmlDocument();
+                xmlDoc.Load(xmlReader);
+
+                if (xmlDoc.DocumentElement.Name != "ModMetaData")
+                {
+                    return;
+                }
+
+                string name = null;
+                string packageId = null;
+
+                foreach (XmlNode childNode in xmlDoc.DocumentElement.ChildNodes)
+                {
+                    if (childNode.NodeType == XmlNodeType.Element)
+                    {
+                        if (childNode.Name == "name")
+                        {
+                            name = childNode.InnerText;
+                        }
+                        if (childNode.Name == "packageId")
+                        {
+                            packageId = childNode.InnerText;
+                        }
+                    }
+                }
+
+                if (name != null && packageId != null && !namePackageIDpair.ContainsKey(name))
+                {
+                    namePackageIDpair.Add(name, packageId);
+                    Log($"{name} linked to {packageId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Exception reading " + file.Name + ": " + ex);
+            }
         }
 
         static void Read(FileInfo file)
@@ -320,11 +383,12 @@ namespace PatchSequenceUnpack
 
         static void GenLoadFolders()
         {
+            Log("===================Writing Loadfolders================");
             Directory.CreateDirectory(outputDir);
             result = XmlWriter.Create(Path.Combine(outputDir, "LoadFolders.xml"), writterSetting);
             result.WriteStartElement("loadFolders");
 
-            result.WriteComment("This file is a pesudo-LoadFolders, auto created by the unpacker.\n You will need to replace ifModActives to corresponding packageID, and replace REPLACEMENT-CTRL-Hs to some other path like 1.4/mods/ to work.");
+            result.WriteComment("This file is a pseudo-LoadFolders, auto created by the unpacker.\n You will need to replace ifModActives to corresponding packageID, and replace REPLACEMENT-CTRL-Hs to some other path like 1.4/mods/ to work.");
 
             result.WriteStartElement("v1.4");
 
@@ -335,7 +399,19 @@ namespace PatchSequenceUnpack
             foreach (string s in firstFolders)
             {
                 result.WriteStartElement("li");
-                result.WriteAttributeString("IfModActive", s);
+                string str = $"NOTFOUND[{s}]";
+                if (namePackageIDpair.Any() && namePackageIDpair.ContainsKey(s))
+                {
+                    str = namePackageIDpair[s];
+                    Log($"PackageID found for {s}, which is {str}.");
+                }
+                else
+                {
+                    Log($"PackageID for {s} not found.");
+                }
+
+
+                result.WriteAttributeString("IfModActive", str);
                 result.WriteString("REPLACEMENT-CTRL-H/" + s);
                 result.WriteEndElement();
             }
