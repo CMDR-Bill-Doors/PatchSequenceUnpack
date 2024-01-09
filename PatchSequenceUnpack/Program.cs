@@ -61,7 +61,7 @@ namespace PatchSequenceUnpack
             makeLoadFolders = Console.ReadLine().ToLower()[0] == 'y';
             if (makeLoadFolders)
             {
-                Log("A pesudo loadfolder file will be created");
+                Log("A pseudo loadfolder file will be created");
                 Log("Input the steam mods folder's path");
                 steamModDir = Console.ReadLine();
                 if (steamModDir != "")
