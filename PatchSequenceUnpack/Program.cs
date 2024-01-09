@@ -14,7 +14,7 @@ namespace PatchSequenceUnpack
 
         static string dir = System.IO.Directory.GetCurrentDirectory();
 
-        static string outputDir = Path.Combine(Path.GetFullPath(".."), "Output");
+        static string outputDir;
 
         static int i;
 
@@ -25,7 +25,9 @@ namespace PatchSequenceUnpack
             Console.WriteLine("Input the patch folder's path");
             dir = Console.ReadLine();
 
-            Console.WriteLine(dir);
+            Console.WriteLine("Input the output folder's path");
+            outputDir = Path.Combine(Console.ReadLine(), "Output");
+
             DirectoryInfo directoryInfo = new DirectoryInfo(dir);
             Console.WriteLine("Output " + outputDir);
             Directory.CreateDirectory(outputDir);
@@ -57,6 +59,11 @@ namespace PatchSequenceUnpack
                 xmlDoc = new XmlDocument();
                 xmlDoc.Load(xmlReader);
 
+                if (!IsPatch(xmlDoc))
+                {
+                    Console.WriteLine(file.FullName + " is not a patch");
+                    return;
+                }
                 XmlWriterSettings writterSetting = new XmlWriterSettings();
                 writterSetting.Indent = true;
                 writterSetting.IndentChars = "\t";
@@ -66,19 +73,13 @@ namespace PatchSequenceUnpack
                 s.Replace(dir, "");
                 s.Remove(0, 1);
                 string filepath = s.ToString();
+                string firstFolder = filepath.Split(@"\".ToCharArray())[0];
                 s.Replace(file.Name, "");
                 string directirory = s.ToString();
-
-                Directory.CreateDirectory(Path.Combine(outputDir, directirory));
-                result = XmlWriter.Create(Path.Combine(outputDir, filepath), writterSetting);
+                Directory.CreateDirectory(Path.Combine(outputDir, firstFolder, "Patches", directirory));
+                result = XmlWriter.Create(Path.Combine(outputDir, firstFolder, "Patches", filepath), writterSetting);
                 result.WriteStartElement("Patch");
-
-                if (!UnPackPatch(xmlDoc))
-                {
-                    Console.WriteLine(file.FullName + " is not a patch");
-                    return;
-                }
-
+                UnPackPatch(xmlDoc);
                 i++;
 
                 result.WriteEndElement();
@@ -88,6 +89,11 @@ namespace PatchSequenceUnpack
             {
                 Console.WriteLine("Exception reading " + file.Name + ": " + ex);
             }
+        }
+
+        static bool IsPatch(XmlDocument xmlDoc)
+        {
+            return xmlDoc.DocumentElement.Name == "Patch";
         }
 
         static bool UnPackPatch(XmlDocument xmlDoc)
