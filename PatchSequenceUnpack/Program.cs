@@ -2,13 +2,10 @@
 using System.Xml;
 using System.IO;
 using System.Collections.Generic;
-using System.Reflection;
-using static System.Net.Mime.MediaTypeNames;
 using System.Text;
 using System.Linq;
-using System.Diagnostics.SymbolStore;
-using System.Xml.Linq;
-using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace PatchSequenceUnpack
 {
@@ -101,9 +98,13 @@ namespace PatchSequenceUnpack
             }
             Log($"===================Finished================");
             Log($"Converted patches stored at {outputDir}");
-            Log($"De-Sequencing of {i} files and {j} patches complete, among which {k} patchOperationAdds are converted to def. Press any key to exit.");
+            Log($"De-Sequencing of {i} files and {j} patches complete, among which {k} patchOperationAdds are converted to def. Press any key to exit and open output folder.");
             exportLog.Close();
             Console.ReadKey();
+            var psi = new ProcessStartInfo();
+            psi.FileName = @"c:\windows\explorer.exe";
+            psi.Arguments = outputDir;
+            Process.Start(psi);
         }
 
         public static void Log(string logMessage)
